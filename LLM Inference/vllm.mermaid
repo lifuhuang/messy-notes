@@ -1,0 +1,224 @@
+flowchart TD
+  subgraph api_server["api_server"]
+    api_server.run_server["run_server()"]
+    api_server.build_async_engine_client["build_async_engine_client"]
+    api_server.build_async_engine_client_from_engine_args["build_async_engine_client_from_engine_args"]
+    api_server.init_app_state["init_app_state"]
+    api_server.serve_http["serve_http"]
+    api_server.create_completion["create_completion()"]
+  end
+
+  subgraph OpenAIServingCompletion["OpenAIServingCompletion"]
+    OpenAIServingCompletion.init["init()"]
+    OpenAIServingCompletion.create_completion["create_completion()"]
+    OpenAIServingCompletion._preprocess_completion["_preprocess_completion()"]
+    OpenAIServingCompletion._tokenize_prompt_input_or_inputs_async["_tokenize_prompt_input_or_inputs_async()"]
+    OpenAIServingCompletion.request_output_to_completion_response["request_output_to_completion_response()"]
+  end
+
+  subgraph Processor["Processor"]
+    Processor.process_inputs["process_inputs"]
+  end
+
+  subgraph OutputProcessor["OutputProcessor"]
+    OutputProcessor.add_request["add_request"]
+  end
+
+  subgraph MPClient["MPClient"]
+    MPClient.init["init"]
+    MPClient.make_zmq_socket["make_zmq_socket"]
+  end
+
+  subgraph AsyncMPClient["AsyncMPClient"]
+    AsyncMPClient.init["init"]
+    AsyncMPClient.add_request_async["add_request_async"]
+    AsyncMPClient._send_input["_send_input"]
+    AsyncMPClient.process_outputs_socket["process_outputs_socket"]
+    AsyncMPClient._ensure_output_queue_task["_ensure_output_queue_task"]
+    MPClient
+  end
+
+  subgraph AsyncLLM["AsyncLLM"]
+    AsyncLLM.init["init"]
+    AsyncLLM.from_vllm_config["from_vllm_config"]
+    AsyncLLM.add_request["add_request"]
+    AsyncLLM.generate["generate()"]
+  end
+
+  subgraph EngineCoreClient["EngineCoreClient"]
+    EngineCoreClient.make_client["(static) make_client"]
+  end
+
+  subgraph CoreEngine["CoreEngine"]
+    CoreEngine.init["init"]
+  end
+
+  subgraph BackgroundProcHandle["BackgroundProcHandle"]
+    BackgroundProcHandle.init["init(process_name=EngineCore_{id}, target_fn=EngineCoreProc.run_engine_core, input_path, output_path, ...)"]
+  end
+
+  subgraph Scheduler["Scheduler"]
+    Scheduler.schedule["schedule"]
+  end
+
+  subgraph LlamaForCausalLM["LlamaForCausalLM"]
+    LlamaForCausalLM.init["init"]
+    LlamaForCausalLM.init_model["_init_model"]
+    LlamaForCausalLM.load_weights["load_weights"]
+    LlamaForCausalLM.forward["forward"]
+  end
+
+  subgraph LlamaModel["LlamaModel"]
+    LlamaModel.init["init"]
+    LlamaModel.make_layers["make_layers"]
+    LlamaModel.load_weights["load_weights"]
+    LlamaModel.forward["forward"]
+  end
+
+  subgraph LlamaDecoderLayer["LlamaDecoderLayer"]
+    LlamaDecoderLayer.init["init"]
+    LlamaDecoderLayer.forward["forward"]
+  end
+
+  subgraph GpuWorker["gpu_worker.Worker"]
+    GpuWorker.init["init"]
+    GpuWorker.init_device["init_device"]
+    GpuWorker.load_model["load_model"]
+    GpuWorker.determine_available_memory["determine_available_memory"]
+    GpuWorker.initialize_from_config["initialize_from_config"]
+    GpuWorker.execute_model["execute_model"]
+  end
+
+  subgraph GPUModelRunner["GPUModelRunner"]
+    GPUModelRunner.init["init"]
+    GPUModelRunner.load_model["load_model"]
+    GPUModelRunner.profile_run["profile_run"]
+    GPUModelRunner.initialize_from_config["initialize_from_config"]
+    GPUModelRunner.execute_model["execute_model"]
+  end
+
+  subgraph LlamaAttention["LlamaAttention"]
+    LlamaAttention.init["init"]
+    LlamaAttention.forward["forward"]
+  end
+
+  subgraph QKVParallelLinear["QKVParallelLinear"]
+    LlamaAttention.init --> QKVParallelLinear.init["init"]
+    LlamaModel.load_weights --> QKVParallelLinear.weight_loader["weight_loader"]
+    subgraph ColumnParallelLinear["ColumnParallelLinear"]
+      ColumnParallelLinear.forward["forward"]
+    end
+  end
+
+  subgraph MergedColumnParallelLinear["MergedColumnParallelLinear"]
+    LlamaAttention.init --> MergedColumnParallelLinear.init["init"]
+    LlamaModel.load_weights --> MergedColumnParallelLinear.weight_loader["weight_loader"]
+  end
+
+  subgraph RowParallelLinear["RowParallelLinear"]
+    LlamaAttention.init --> RowParallelLinear.init["init"]
+    LlamaModel.load_weights --> RowParallelLinear.weight_loader["weight_loader"]
+    RowParallelLinear.forward["forward"]
+  end
+
+  subgraph DefaultModelLoader["DefaultModelLoader"]
+    DefaultModelLoader.load_model["load_model"]
+    DefaultModelLoader.initialize_model["_initialize_model"]
+  end
+
+  subgraph WorkerWrapperBase["WorkerWrapperBase"]
+    WorkerWrapperBase.init["init"]
+    WorkerWrapperBase.init_worker["init_worker"]
+    WorkerWrapperBase.init_device["init_device"]
+  end
+
+  subgraph Executor["Executor"]
+    subgraph ExecutorBase
+      ExecutorBase.init["init"]
+    end
+    Executor.get_kv_cache_specs["get_kv_cache_specs"]
+    Executor.determine_available_memory["determine_available_memory"]
+    Executor.initialize_from_config["initialize_from_config"]
+    Executor.execute_model["execute_model"]
+  end
+
+  subgraph WorkerProc
+    WorkerProc.make_worker_process["(static) make_worker_process"]
+    WorkerProc.worker_main["(static) worker_main"]
+    WorkerProc.init["init"]
+    WorkerProc.worker_busy_loop["worker_busy_loop"]
+  end
+
+  subgraph MultiprocExecutor["MultiprocExecutor"]
+    MultiprocExecutor.init_executor["_init_executor"]
+    MultiprocExecutor.collective_rpc["collective_rpc"]
+    Executor
+  end
+
+  subgraph EngineCore["EngineCore"]
+    EngineCore.init["init"]
+    EngineCore.initialize_kv_caches["_initialize_kv_caches"]
+    EngineCore.step["step"]
+  end
+
+  subgraph EngineCoreProc["EngineCoreProc"]
+    EngineCore
+    EngineCoreProc.run_engine_core["(static) run_engine_core"]
+    EngineCoreProc.init["init"]
+    EngineCoreProc.run_busy_loop["run_busy_loop"]
+    EngineCoreProc.process_input_queue["_process_input_queue"]
+    EngineCoreProc.process_engine_step["_process_engine_step"]
+  end
+
+  subgraph AutoWeightsLoader["AutoWeightsLoader"]
+    AutoWeightsLoader.init["init"]
+    AutoWeightsLoader.load_weights["load_weights"]
+    AutoWeightsLoader.load_module["_load_module"]
+  end
+
+  %% Edges
+  GPUModelRunner.load_model 
+  --> DefaultModelLoader.load_model 
+  --> DefaultModelLoader.initialize_model 
+  --> LlamaForCausalLM.init 
+  --> LlamaForCausalLM.init_model & LlamaForCausalLM.load_weights
+  
+
+  WorkerProc.worker_main --> WorkerProc.worker_busy_loop
+  LlamaForCausalLM.init_model --> LlamaModel.init
+  LlamaForCausalLM.load_weights --> AutoWeightsLoader.init
+  LlamaForCausalLM.load_weights --> AutoWeightsLoader.load_weights --> AutoWeightsLoader.load_module --> LlamaModel.load_weights
+  LlamaModel.init --> LlamaModel.make_layers --> LlamaDecoderLayer.init --> LlamaAttention.init
+  WorkerWrapperBase.init_worker --> GpuWorker.init
+  M["main()"] --> CMD["ServeSubcommand::cmd()"]
+  CMD --> api_server.run_server
+  api_server.run_server --> api_server.build_async_engine_client & api_server.init_app_state & api_server.serve_http & api_server.create_completion
+  api_server.build_async_engine_client --> api_server.build_async_engine_client_from_engine_args
+  api_server.init_app_state --> OpenAIServingCompletion.init
+  api_server.create_completion --> OpenAIServingCompletion.create_completion --> OpenAIServingCompletion._preprocess_completion --> OpenAIServingCompletion._tokenize_prompt_input_or_inputs_async & OpenAIServingCompletion.request_output_to_completion_response
+  EngineCoreClient.make_client --> AsyncMPClient.init
+  AsyncMPClient.add_request_async --> AsyncMPClient._send_input & AsyncMPClient._ensure_output_queue_task
+  AsyncMPClient._ensure_output_queue_task --> AsyncMPClient.process_outputs_socket
+  AsyncMPClient.init --> MPClient.init --> MPClient.make_zmq_socket & CoreEngine.init
+  api_server.build_async_engine_client_from_engine_args --> AsyncLLM.from_vllm_config --> AsyncLLM.init --> EngineCoreClient.make_client
+  OpenAIServingCompletion._preprocess_completion --> AsyncLLM.generate --> AsyncLLM.add_request --> Processor.process_inputs & OutputProcessor.add_request & AsyncMPClient.add_request_async
+  GpuWorker.load_model --> GPUModelRunner.load_model
+  Executor.determine_available_memory --> MultiprocExecutor.collective_rpc -. rpc_broadcast_mq .-> WorkerProc.worker_busy_loop --> GpuWorker.determine_available_memory
+  Executor.initialize_from_config --> MultiprocExecutor.collective_rpc -. rpc_broadcast_mq .-> WorkerProc.worker_busy_loop --> GpuWorker.initialize_from_config
+  Executor.execute_model --> MultiprocExecutor.collective_rpc -. rpc_broadcast_mq .-> WorkerProc.worker_busy_loop --> GpuWorker.execute_model --> GPUModelRunner.execute_model
+  EngineCore.init --> ExecutorBase.init
+  EngineCore.init --> EngineCore.initialize_kv_caches --> Executor.get_kv_cache_specs & Executor.determine_available_memory & Executor.initialize_from_config
+  GpuWorker.initialize_from_config --> GPUModelRunner.initialize_from_config
+  GpuWorker.determine_available_memory --> GPUModelRunner.profile_run
+  EngineCore.step --> Scheduler.schedule & Executor.execute_model
+  BackgroundProcHandle.init -. start process .-> EngineCoreProc.run_engine_core --> EngineCoreProc.init --> EngineCore.init
+  EngineCoreProc.run_engine_core --> EngineCoreProc.run_busy_loop --> EngineCoreProc.process_input_queue & EngineCoreProc.process_engine_step 
+  EngineCoreProc.process_engine_step --> EngineCore.step
+  WorkerWrapperBase.init_device --> GpuWorker.init_device --> GPUModelRunner.init
+  CoreEngine.init --> BackgroundProcHandle.init
+  ExecutorBase.init --> MultiprocExecutor.init_executor --> WorkerProc.make_worker_process -. start process .-> WorkerProc.worker_main --> WorkerProc.init --> WorkerWrapperBase.init 
+ 
+  WorkerProc.init --> WorkerWrapperBase.init_worker & WorkerWrapperBase.init_device & GpuWorker.load_model
+  LlamaForCausalLM.forward --> LlamaModel.forward --> LlamaDecoderLayer.forward --> LlamaAttention.forward --> ColumnParallelLinear.forward & RowParallelLinear.forward
+  GPUModelRunner.profile_run --> LlamaForCausalLM.forward
+  GPUModelRunner.execute_model --> LlamaForCausalLM.forward

@@ -1,0 +1,301 @@
+---
+config:
+  layout: elk
+---
+flowchart TD
+  subgraph TokenizerManager["TokenizerManager"]
+    TokenizerManager.init["init"]
+    TokenizerManager.handle_loop["handle_loop"]
+    TokenizerManager.generate_request["generate_request"]
+    TokenizerManager._tokenize_one_request["_tokenize_one_request"]
+    TokenizerManager._send_one_request["_send_one_request"]
+    TokenizerManager._wait_one_response["_wait_one_response"]
+  end
+  subgraph Qwen2_5VLImageProcessor["Qwen2_5VLImageProcessor"]
+    Qwen2_5VLImageProcessor.init["init"]
+      Qwen2_5VLImageProcessor.process_mm_data_async["process_mm_data_async"]
+    subgraph BaseMultimodalProcessor["BaseMultimodalProcessor"]
+      BaseMultimodalProcessor.init["init"]
+      BaseMultimodalProcessor.process_mm_data["process_mm_data"]
+      BaseMultimodalProcessor.load_mm_data["load_mm_data"]
+      BaseMultimodalProcessor.encode["encode"]
+    end
+  end
+  
+  subgraph Qwen2_5_VLProcessor["Qwen2_5_VLProcessor"]
+    Qwen2_5_VLProcessor.call["__call"]
+  end
+  
+  subgraph PreTrainedTokenizerBase["PreTrainedTokenizerBase"]
+    PreTrainedTokenizerBase.apply_chat_template["apply_chat_template"]
+    PreTrainedTokenizerBase._compile_jinja_template["_compile_jinja_template"]
+  end
+  subgraph AutoProcessor["AutoProcessor"]
+    AutoProcessor.from_pretrained["from_pretrained"]
+  end
+  subgraph transformers["(pkg) transformers"]
+    Qwen2_5_VLProcessor
+    PreTrainedTokenizerBase
+    AutoProcessor
+  end
+  
+  subgraph Engine["Engine"]
+    Engine.save_remote_model["save_remote_model"]
+    Engine.save_sharded_model["save_sharded_model"]
+    Engine.collective_rpc["collective_rpc"]
+    Engine.async_generate["async_generate"]
+    launch_subprocesses["(tlf) _launch_subprocesses"]
+  end
+  subgraph http_server_py["http_server.py"]
+    openai_v1_chat_completions["openai_v1_chat_completions"]
+    launch_server["launch_server"]
+  end
+   subgraph adapter["open_api/adapter.py"]
+    v1_chat_completions["v1_chat_completions"]
+    v1_chat_generate_request["v1_chat_generate_request"]
+    generate_stream_resp["generate_stream_resp"]
+  end
+  subgraph hf_transformers_utils_py["hf_transformers_utils.py"]
+    hf_transformers_utils_py.get_processor["get_processor"]
+  end
+  subgraph multimodal_processor_py["multimodal_processor.py"]
+    multimodal_processor_py.get_mm_processor["get_mm_processor"]
+  end
+  subgraph MainProcess["MainProcess"]
+    TokenizerManager
+    BaseMultimodalProcessor
+    Qwen2_5VLImageProcessor
+    transformers
+    Engine
+    http_server_py
+    adapter
+    hf_transformers_utils_py
+    multimodal_processor_py
+  end
+
+  subgraph ScheduleBatch["ScheduleBatch"]
+    ScheduleBatch.merge_batch["merge_batch"]
+    ScheduleBatch.init_new["init_new"]
+    ScheduleBatch.prepare_for_extend["prepare_for_extend"]
+    ScheduleBatch.alloc_req_slots["alloc_req_slots"]
+    ScheduleBatch.alloc_token_slots["alloc_token_slots"]
+    ScheduleBatch.write_req_to_token_pool_triton["write_req_to_token_pool_triton"]
+  end
+  subgraph SchedulePolicy["SchedulePolicy"]
+    SchedulePolicy.calc_priority["calc_priority"]
+  end
+  subgraph SchedulerOutputProcessorMixin["SchedulerOutputProcessorMixin"]
+    SchedulerOutputProcessorMixin.process_batch_result_prefill["process_batch_result_prefill"]
+    SchedulerOutputProcessorMixin.process_batch_result_decode["process_batch_result_decode"]
+    SchedulerOutputProcessorMixin.stream_output["stream_output"]
+  end
+  subgraph Scheduler["Scheduler"]
+    run_scheduler_process
+    SchedulerOutputProcessorMixin
+    Scheduler.init["init"]
+    Scheduler.recv_requests["recv_requests"]
+    Scheduler.event_loop_overlap["event_loop_overlap"]
+    Scheduler.process_input_requests["process_input_requests"]
+    Scheduler.handle_generate_request["handle_generate_request"]
+    Scheduler._add_request_to_queue["_add_request_to_queue"]
+    Scheduler.get_next_batch_to_run["get_next_batch_to_run"]
+    Scheduler.get_new_batch_prefill["get_new_batch_prefill"]
+    Scheduler.init_next_round_input["init_next_round_input"]
+    Scheduler.run_batch["run_batch"]
+    Scheduler.process_batch_result["process_batch_result"]
+  end
+  subgraph RadixCache["RadixCache"]
+    RadixCache.match_prefix["match_prefix"]
+  end
+  subgraph TpModelWorkerClient["TpModelWorkerClient"]
+    TpModelWorkerClient.init["init"]
+    TpModelWorkerClient.forward_batch_generation["forward_batch_generation"]
+    TpModelWorkerClient.forward_thread_func["forward_thread_func"]
+    TpModelWorkerClient.forward_thread_func_["forward_thread_func"]
+    TpModelWorkerClient.input_queue["self.input_queue"]
+    TpModelWorkerClient.input_queue@{ shape: h-cyl}
+  end
+  subgraph TpModelWorker["TpModelWorker"]
+    TpModelWorker.init["init"]
+    TpModelWorker.forward_batch_generation["forward_batch_generation"]
+  end
+  subgraph ModelRunner["ModelRunner"]
+    ModelRunner.init["init"]
+    ModelRunner.initialize["initialize"]
+    ModelRunner.forward["forward"]
+    ModelRunner.forward_extend["forward_extend"]
+  end
+  subgraph CUDAGraphRunner["CUDAGraphRunner"]
+    CUDAGraphRunner.init["init"]
+    CUDAGraphRunner.capture["capture"]
+    CUDAGraphRunner.capture_one_batch_size["capture_one_batch_size"]
+    CUDAGraphRunner.run_once["run_once"]
+    CUDAGraphRunner.replay["replay"]
+    CUDAGraphRunner.replay_prepare["replay_prepare"]
+  end
+
+  subgraph ReqToTokenPool["ReqToTokenPool"]
+    ReqToTokenPool.write["write"]
+  end
+  subgraph Qwen2_5_VLForConditionalGeneration["Qwen2_5_VLForConditionalGeneration"]
+    Qwen2_5_VLForConditionalGeneration.forward["forward"]
+  end
+  subgraph Qwen2Model["Qwen2Model"]
+    Qwen2Model.forward["forward"]
+    Qwen2Model.get_input_embeddings["get_input_embeddings"]
+  end
+
+  subgraph Qwen2DecoderLayer["Qwen2DecoderLayer"]
+    Qwen2DecoderLayer.forward["forward"]
+  end
+
+  subgraph Qwen2Attention["Qwen2Attention"]
+    Qwen2Attention.forward["forward"]
+  end
+
+  subgraph RadixAttention["RadixAttention"]
+    RadixAttention.forward["forward"]
+  end
+
+  subgraph FlashAttentionBackend["FlashAttentionBackend"]
+    FlashAttentionBackend.forward_extend["forward_extend"]
+    FlashAttentionBackend.init_cuda_graph_state["init_cuda_graph_state"]
+    FlashAttentionBackend.init_forward_metadata_capture_cuda_graph["init_forward_metadata_capture_cuda_graph"]
+    FlashAttentionBackend.init_forward_metadata_replay_cuda_graph["init_forward_metadata_replay_cuda_graph"]
+    subgraph AttentionBackend["AttentionBackend"]
+      AttentionBackend.forward["forward"]
+    end
+  end
+
+  subgraph MHATokenToKVPool["MHATokenToKVPool"]
+    MHATokenToKVPool.set_kv_buffer["set_kv_buffer"]
+    MHATokenToKVPool.get_kv_buffer["get_kv_buffer"]
+  end
+
+  subgraph mm_utils_py["mm_utils.py"]
+    mm_utils_py.general_mm_embed_routine["general_mm_embed_routine"]
+    mm_utils_py.embed_mm_inputs["embed_mm_inputs"]
+  end
+
+  subgraph PrefillAdder["PrefillAdder"]
+    PrefillAdder.init["init"]
+    PrefillAdder.add_one_req["add_one_req"]
+  end
+  subgraph torch["(pkg) torch"]
+    subgraph CUDAGraph ["CUDAGraph"]
+      CUDAGraph.init["init"]
+      CUDAGraph.replay["replay"]
+  end
+end
+  subgraph SchedulerProcess["SchedulerProcess"]
+    Scheduler
+    ScheduleBatch
+    SchedulePolicy
+    RadixCache
+    ReqToTokenPool
+    TpModelWorkerClient
+    TpModelWorker
+    ModelRunner
+    mm_utils_py
+    Qwen2_5_VLForConditionalGeneration
+    Qwen2Model
+    Qwen2DecoderLayer
+    Qwen2Attention
+    RadixAttention
+    FlashAttentionBackend
+    MHATokenToKVPool
+    CUDAGraphRunner
+    PrefillAdder
+    torch
+    subgraph "(pkg) sgl_kernel"
+      subgraph flash_attn["flash_attn"]
+        flash_attn_with_kvcache["flash_attn_with_kvcache"]
+      end
+    end
+  end
+  subgraph DetokenizerManager["DetokenizerManager"]
+    DetokenizerManager._request_dispatcher["_request_dispatcher"]
+    DetokenizerManager.event_loop["event_loop"]
+  end
+  subgraph DetokenizerProcess["DetokenizerProcess"]
+    DetokenizerManager
+  end
+
+  
+  launch_server --> launch_subprocesses -.start process.-> run_scheduler_process --> Scheduler.event_loop_overlap
+  launch_subprocesses --> TokenizerManager.init --> hf_transformers_utils_py.get_processor --> AutoProcessor.from_pretrained
+  TokenizerManager.init --> multimodal_processor_py.get_mm_processor --> Qwen2_5VLImageProcessor.init --> BaseMultimodalProcessor.init
+  run_scheduler_process 
+  --> Scheduler.init 
+  --> TpModelWorkerClient.init 
+  --> TpModelWorker.init 
+  --> ModelRunner.init 
+  --> ModelRunner.initialize
+  --> CUDAGraphRunner.init
+  CUDAGraphRunner.init --> FlashAttentionBackend.init_cuda_graph_state 
+  CUDAGraphRunner.init --> CUDAGraphRunner.capture --> CUDAGraphRunner.capture_one_batch_size --> CUDAGraph.init
+  --> FlashAttentionBackend.init_forward_metadata_capture_cuda_graph --> CUDAGraphRunner.run_once --> Qwen2_5_VLForConditionalGeneration.forward
+
+  launch_server --> openai_v1_chat_completions
+  openai_v1_chat_completions --> v1_chat_completions
+  DetokenizerManager.event_loop --> DetokenizerManager._request_dispatcher
+  Engine.save_remote_model --> Engine.collective_rpc
+  Engine.save_sharded_model --> Engine.collective_rpc
+
+  
+
+  v1_chat_completions --> v1_chat_generate_request --> PreTrainedTokenizerBase.apply_chat_template --> PreTrainedTokenizerBase._compile_jinja_template
+  v1_chat_completions --> generate_stream_resp
+  generate_stream_resp --> TokenizerManager.generate_request
+  Engine.async_generate --> TokenizerManager.generate_request
+  TokenizerManager.generate_request --> TokenizerManager._tokenize_one_request & TokenizerManager._send_one_request & TokenizerManager._wait_one_response
+  TokenizerManager._tokenize_one_request --> BaseMultimodalProcessor.encode
+  TokenizerManager._tokenize_one_request --> Qwen2_5VLImageProcessor.process_mm_data_async 
+  Qwen2_5VLImageProcessor.process_mm_data_async --> BaseMultimodalProcessor.load_mm_data 
+  Qwen2_5VLImageProcessor.process_mm_data_async --> BaseMultimodalProcessor.process_mm_data
+  BaseMultimodalProcessor.process_mm_data --> Qwen2_5_VLProcessor.call
+  SchedulerOutputProcessorMixin.stream_output -..-> detokenizer_ipc["detokenizer_ipc"]
+  detokenizer_ipc -..-> DetokenizerManager.event_loop
+  DetokenizerManager.event_loop -..-> tokenizer_ipc["tokenizer_ipc"]
+  tokenizer_ipc -..-> TokenizerManager.handle_loop
+  Engine.collective_rpc <-..-> rpc_ipc["rpc_ipc"]
+  rpc_ipc <-..-> Scheduler.recv_requests
+  TokenizerManager._send_one_request -..-> scheduler_input_ipc["scheduler_input_ipc"]
+  scheduler_input_ipc -..-> Scheduler.recv_requests
+  Scheduler.event_loop_overlap --> Scheduler.recv_requests & Scheduler.process_input_requests & Scheduler.get_next_batch_to_run & Scheduler.run_batch & Scheduler.process_batch_result
+  Scheduler.process_batch_result --> SchedulerOutputProcessorMixin.process_batch_result_decode --> SchedulerOutputProcessorMixin.stream_output
+  Scheduler.process_batch_result --> SchedulerOutputProcessorMixin.process_batch_result_prefill --> SchedulerOutputProcessorMixin.stream_output
+  Scheduler.process_input_requests --> Scheduler.handle_generate_request
+  Scheduler.handle_generate_request --> Scheduler._add_request_to_queue
+  Scheduler.get_next_batch_to_run --> ScheduleBatch.merge_batch & Scheduler.get_new_batch_prefill
+  Scheduler.get_new_batch_prefill --> SchedulePolicy.calc_priority & Scheduler.init_next_round_input & ScheduleBatch.init_new & ScheduleBatch.prepare_for_extend
+  Scheduler.get_new_batch_prefill --> PrefillAdder.init & PrefillAdder.add_one_req
+  Scheduler.init_next_round_input --> RadixCache.match_prefix
+  ScheduleBatch.prepare_for_extend --> ScheduleBatch.alloc_req_slots & ReqToTokenPool.write & ScheduleBatch.alloc_token_slots & ScheduleBatch.write_req_to_token_pool_triton
+  Scheduler.run_batch --> TpModelWorkerClient.forward_batch_generation
+
+  TpModelWorkerClient.forward_batch_generation
+  -..-> TpModelWorkerClient.input_queue -..-> TpModelWorkerClient.forward_thread_func
+  --> TpModelWorkerClient.forward_thread_func_
+  --> TpModelWorker.forward_batch_generation
+  --> ModelRunner.forward
+  ModelRunner.forward --> ModelRunner.forward_extend
+  --> Qwen2_5_VLForConditionalGeneration.forward 
+  --> mm_utils_py.general_mm_embed_routine --> Qwen2Model.get_input_embeddings & mm_utils_py.embed_mm_inputs & Qwen2Model.forward
+
+  ModelRunner.forward --> CUDAGraphRunner.replay --> CUDAGraphRunner.replay_prepare & CUDAGraph.replay 
+  CUDAGraphRunner.replay_prepare --> FlashAttentionBackend.init_forward_metadata_replay_cuda_graph
+
+  Qwen2Model.forward --> Qwen2DecoderLayer.forward
+  Qwen2DecoderLayer.forward --> Qwen2Attention.forward
+  Qwen2Attention.forward --> RadixAttention.forward
+
+  RadixAttention.forward --> AttentionBackend.forward --> FlashAttentionBackend.forward_extend
+  FlashAttentionBackend.forward_extend --> MHATokenToKVPool.set_kv_buffer
+  FlashAttentionBackend.forward_extend --> MHATokenToKVPool.get_kv_buffer
+  FlashAttentionBackend.forward_extend --> flash_attn_with_kvcache
+
+  detokenizer_ipc@{ shape: h-cyl}
+  tokenizer_ipc@{ shape: h-cyl}
+  rpc_ipc@{ shape: h-cyl}
+  scheduler_input_ipc@{ shape: h-cyl}
