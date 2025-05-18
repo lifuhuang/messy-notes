@@ -104,6 +104,12 @@ flowchart TD
     Scheduler.run_batch["run_batch"]
     Scheduler.process_batch_result["process_batch_result"]
   end
+  subgraph MultimodalInputs["MultimodalInputs"]
+    MultimodalInputs.from_dict["(static)from_dict"]
+  end
+  subgraph MultimodalDataItem["MultimodalDataItem"]
+    MultimodalDataItem.set_pad_value["set_pad_value"]
+  end
   subgraph RadixCache["RadixCache"]
     RadixCache.match_prefix["match_prefix"]
   end
@@ -138,6 +144,7 @@ flowchart TD
     ReqToTokenPool.write["write"]
   end
   subgraph Qwen2_5_VLForConditionalGeneration["Qwen2_5_VLForConditionalGeneration"]
+    Qwen2_5_VLForConditionalGeneration.pad_input_ids["pad_input_ids"]
     Qwen2_5_VLForConditionalGeneration.forward["forward"]
   end
   subgraph Qwen2Model["Qwen2Model"]
@@ -181,6 +188,9 @@ flowchart TD
     PrefillAdder.init["init"]
     PrefillAdder.add_one_req["add_one_req"]
   end
+  subgraph MultiModalityDataPaddingPatternMultimodalTokens["MultiModalityDataPaddingPatternMultimodalTokens"]
+    MultiModalityDataPaddingPatternMultimodalTokens.pad_input_tokens["pad_input_tokens"]
+  end
   subgraph torch["(pkg) torch"]
     subgraph CUDAGraph ["CUDAGraph"]
       CUDAGraph.init["init"]
@@ -192,6 +202,8 @@ end
     ScheduleBatch
     SchedulePolicy
     RadixCache
+    MultimodalInputs
+    MultimodalDataItem
     ReqToTokenPool
     TpModelWorkerClient
     TpModelWorker
@@ -200,6 +212,7 @@ end
     Qwen2_5_VLForConditionalGeneration
     Qwen2Model
     Qwen2DecoderLayer
+    MultiModalityDataPaddingPatternMultimodalTokens
     Qwen2Attention
     RadixAttention
     FlashAttentionBackend
@@ -266,6 +279,8 @@ end
   Scheduler.process_batch_result --> SchedulerOutputProcessorMixin.process_batch_result_decode --> SchedulerOutputProcessorMixin.stream_output
   Scheduler.process_batch_result --> SchedulerOutputProcessorMixin.process_batch_result_prefill --> SchedulerOutputProcessorMixin.stream_output
   Scheduler.process_input_requests --> Scheduler.handle_generate_request
+  Scheduler.handle_generate_request --> MultimodalInputs.from_dict --> MultimodalDataItem.set_pad_value
+  Scheduler.handle_generate_request --> Qwen2_5_VLForConditionalGeneration.pad_input_ids --> MultiModalityDataPaddingPatternMultimodalTokens.pad_input_tokens
   Scheduler.handle_generate_request --> Scheduler._add_request_to_queue
   Scheduler.get_next_batch_to_run --> ScheduleBatch.merge_batch & Scheduler.get_new_batch_prefill
   Scheduler.get_new_batch_prefill --> SchedulePolicy.calc_priority & Scheduler.init_next_round_input & ScheduleBatch.init_new & ScheduleBatch.prepare_for_extend
