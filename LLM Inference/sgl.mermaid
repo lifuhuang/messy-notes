@@ -44,7 +44,7 @@ flowchart TD
     Engine.save_sharded_model["save_sharded_model"]
     Engine.collective_rpc["collective_rpc"]
     Engine.async_generate["async_generate"]
-    launch_subprocesses["(tlf) _launch_subprocesses"]
+    launch_subprocesses["(tlf)_launch_subprocesses"]
   end
   subgraph http_server_py["http_server.py"]
     openai_v1_chat_completions["openai_v1_chat_completions"]
@@ -128,6 +128,8 @@ flowchart TD
   subgraph ModelRunner["ModelRunner"]
     ModelRunner.init["init"]
     ModelRunner.initialize["initialize"]
+    ModelRunner.init_lora_manager["init_lora_manager"]
+    ModelRunner.load_model["load_model"]
     ModelRunner.forward["forward"]
     ModelRunner.forward_extend["forward_extend"]
   end
@@ -139,7 +141,26 @@ flowchart TD
     CUDAGraphRunner.replay["replay"]
     CUDAGraphRunner.replay_prepare["replay_prepare"]
   end
+  subgraph ForwardBatch["ForwardBatch"]
+    ForwardBatch.init_new["init_new"]
+  end
 
+  subgraph LoRAManager["LoRAManager"]
+    LoRAManager.init["init"]
+    LoRAManager.init_loras["init_loras"]
+    LoRAManager.convert_to_lora_layers["convert_to_lora_layers"]
+    LoRAManager.set_lora_module["set_lora_module"]
+    LoRAManager.init_lora_memory_pool["init_lora_memory_pool"]
+    LoRAManager.prepare_lora_batch["prepare_lora_batch"]
+  end
+  subgraph LoRAAdapter["LoRAAdapter"]
+    LoRAAdapter.initialize_weights["initialize_weights"]
+  end
+  subgraph LoRAMemoryPool["LoRALoRAMemoryPoolManager"]
+    LoRAMemoryPool.prepare_lora_batch["prepare_lora_batch"]
+    LoRAMemoryPool.load_lora_weight_to_buffer["load_lora_weight_to_buffer"]
+    LoRAMemoryPool.init_buffers["init_buffers"]
+  end
   subgraph ReqToTokenPool["ReqToTokenPool"]
     ReqToTokenPool.write["write"]
   end
@@ -208,6 +229,10 @@ end
     TpModelWorkerClient
     TpModelWorker
     ModelRunner
+    ForwardBatch
+    LoRAManager
+    LoRAMemoryPool
+    LoRAAdapter
     mm_utils_py
     Qwen2_5_VLForConditionalGeneration
     Qwen2Model
@@ -244,8 +269,23 @@ end
   --> TpModelWorker.init 
   --> ModelRunner.init 
   --> ModelRunner.initialize
-  --> CUDAGraphRunner.init
-  CUDAGraphRunner.init --> FlashAttentionBackend.init_cuda_graph_state 
+  --> ModelRunner.load_model
+
+
+  ModelRunner.initialize 
+  --> ModelRunner.init_lora_manager 
+  --> LoRAManager.init
+  --> LoRAAdapter.initialize_weights & LoRAManager.init_loras
+
+  LoRAManager.init_loras
+  --> LoRAManager.convert_to_lora_layers
+  --> LoRAManager.set_lora_module
+
+  LoRAManager.init 
+  --> LoRAManager.init_lora_memory_pool 
+  --> LoRAMemoryPool.init_buffers
+
+  ModelRunner.initialize --> CUDAGraphRunner.init --> FlashAttentionBackend.init_cuda_graph_state 
   CUDAGraphRunner.init --> CUDAGraphRunner.capture --> CUDAGraphRunner.capture_one_batch_size --> CUDAGraph.init
   --> FlashAttentionBackend.init_forward_metadata_capture_cuda_graph --> CUDAGraphRunner.run_once --> Qwen2_5_VLForConditionalGeneration.forward
 
@@ -288,6 +328,10 @@ end
   Scheduler.init_next_round_input --> RadixCache.match_prefix
   ScheduleBatch.prepare_for_extend --> ScheduleBatch.alloc_req_slots & ReqToTokenPool.write & ScheduleBatch.alloc_token_slots & ScheduleBatch.write_req_to_token_pool_triton
   Scheduler.run_batch --> TpModelWorkerClient.forward_batch_generation
+  --> ForwardBatch.init_new
+  --> LoRAManager.prepare_lora_batch
+  --> LoRAMemoryPool.prepare_lora_batch
+  --> LoRAMemoryPool.load_lora_weight_to_buffer
 
   TpModelWorkerClient.forward_batch_generation
   -..-> TpModelWorkerClient.input_queue -..-> TpModelWorkerClient.forward_thread_func
